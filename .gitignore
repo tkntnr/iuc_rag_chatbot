@@ -1,0 +1,10 @@
+# Sanal Ortam
+venv/
+env/
+
+# Python Önbellek Dosyaları
+__pycache__/
+*.pyc
+
+# (İsteğe Bağlı) PDF'leri GitHub'a atmak istemiyorsan aşağıdaki satırın başındaki diyezi kaldır:
+# data/
