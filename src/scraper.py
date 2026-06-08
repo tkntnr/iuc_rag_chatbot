@@ -7,6 +7,7 @@ import os
 import json
 from urllib.parse import urljoin
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 OUTPUT_DIR = r"C:\Users\hp\iuc-rag-chatbot\data\raw"
 PDF_DIR = os.path.join(OUTPUT_DIR, "pdfs")
 HTML_DIR = os.path.join(OUTPUT_DIR, "html")
@@ -21,6 +22,13 @@ TARGET_PAGES = [
     "https://ogrenci.iuc.edu.tr/tr/content/akademik-takvim/onlisans~2Flisans-akademik-takvim",
     "https://ogrenci.iuc.edu.tr/tr/content/sss/",
     "https://ogrenci.iuc.edu.tr/tr/duyurular/1/1",
+    "https://ogrenci.iuc.edu.tr/tr/duyurular/1/2",
+    "https://ogrenci.iuc.edu.tr/tr/duyurular/1/3",
+    "https://ogrenci.iuc.edu.tr/tr/duyurular/1/4",
+    "https://ogrenci.iuc.edu.tr/tr/duyurular/1/5",
+    "https://iuc.edu.tr/tr/content/aday-ogrenci/universitemiz-hakkinda",
+    "https://iuc.edu.tr/tr/content/iuc-kart/iuc-kart-nedir",
+    "https://iuc.edu.tr/tr/",
 ]
 
 metadata = []
