@@ -4,6 +4,7 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_ollama import OllamaLLM
 from rank_bm25 import BM25Okapi
+from sentence_transformers import CrossEncoder
 
 VECTORDB_DIR = r"C:\Users\hp\iuc-rag-chatbot\vectordb"
 
@@ -16,6 +17,19 @@ Yanıtların her zaman:
 - Kaynak belirtmeli (hangi yönetmelik/yönerge)
 Eğer bilgi belgelerinde yoksa "Bu konuda bilgim bulunmamaktadır, lütfen öğrenci işleri ile iletişime geçin." de.
 """
+
+_reranker = None
+
+def get_reranker():
+    global _reranker
+    if _reranker is None:
+        print("Re-ranking modeli yükleniyor...")
+        _reranker = CrossEncoder(
+            "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1",
+            device="cuda"
+        )
+        print("Re-ranking modeli hazır!")
+    return _reranker
 
 def load_indexes():
     print("İndeksler yükleniyor...")
@@ -35,8 +49,8 @@ def load_indexes():
     print("İndeksler yüklendi!")
     return vectorstore, bm25, chunks
 
-def hybrid_search(query, vectorstore, bm25, chunks, k=5, alpha=0.4):
-    faiss_results = vectorstore.similarity_search_with_score(query, k=20)
+def hybrid_search(query, vectorstore, bm25, chunks, k=10, alpha=0.4):
+    faiss_results = vectorstore.similarity_search_with_score(query, k=10)
     faiss_scores = {}
     for doc, score in faiss_results:
         chunk_id = doc.metadata.get("chunk_id", "")
@@ -47,21 +61,27 @@ def hybrid_search(query, vectorstore, bm25, chunks, k=5, alpha=0.4):
     max_bm25 = max(bm25_scores_raw) if max(bm25_scores_raw) > 0 else 1
     bm25_normalized = bm25_scores_raw / max_bm25
 
+    priority_sources = [
+        ("sss_manuel", 0.8),
+        ("411.1y_iuc-onlisans", 0.5),
+        ("iu-cerrahpasa-onlisans-ve-lisans-yonetmeligi-web", 0.5),
+        ("411.3y_iuc-cift-anadal", 0.5),
+        ("411.21y_iuc-on-lisans-ve-lisans", 0.5),
+        ("411.4y_iuc-yandal", 0.3),
+        ("411.14y_iuc-lisans-staj", 0.3),
+        ("411.15y_iuc-hastalik", 0.3),
+    ]
+
     final_scores = {}
     for i, chunk in enumerate(chunks):
         chunk_id = chunk["metadata"]["chunk_id"]
         faiss_score = faiss_scores.get(chunk_id, (0, None))[0]
         bm25_score = float(bm25_normalized[i])
 
-        # Öncelikli PDF'lere bonus puan ver
-        priority_sources = [
-            "411.1y_iuc-onlisans",
-            "iu-cerrahpasa-onlisans-ve-lisans-yonetmeligi-web"
-        ]
         bonus = 0
-        for ps in priority_sources:
+        for ps, ps_bonus in priority_sources:
             if ps in chunk["metadata"]["source"]:
-                bonus = 0.3
+                bonus = ps_bonus
                 break
 
         final_scores[chunk_id] = (
@@ -73,9 +93,12 @@ def hybrid_search(query, vectorstore, bm25, chunks, k=5, alpha=0.4):
     top_chunks = [item[1][1] for item in sorted_results[:k]]
     return top_chunks
 
-    sorted_results = sorted(final_scores.items(), key=lambda x: x[1][0], reverse=True)
-    top_chunks = [item[1][1] for item in sorted_results[:k]]
-    return top_chunks
+def rerank(query, chunks, top_k=5):
+    reranker = get_reranker()
+    pairs = [[query, chunk["content"]] for chunk in chunks]
+    scores = reranker.predict(pairs)
+    ranked = sorted(zip(scores, chunks), key=lambda x: x[0], reverse=True)
+    return [chunk for _, chunk in ranked[:top_k]]
 
 def build_context(chunks):
     context_parts = []
@@ -85,12 +108,23 @@ def build_context(chunks):
         context_parts.append(f"[Kaynak: {source}]\n{content}")
     return "\n\n---\n\n".join(context_parts)
 
-def ask(query, vectorstore, bm25, chunks, llm):
-    top_chunks = hybrid_search(query, vectorstore, bm25, chunks)
+def ask(query, vectorstore, bm25, chunks, llm, chat_history=None):
+    from query_rewriter import rewrite_query
+
+    rewritten_query = rewrite_query(query)
+
+    top_chunks = hybrid_search(rewritten_query, vectorstore, bm25, chunks, k=10)
+    top_chunks = rerank(rewritten_query, top_chunks, top_k=5)
     context = build_context(top_chunks)
+
+    history_text = ""
+    if chat_history:
+        for turn in chat_history[-1:]:
+            history_text += f"Kullanıcı: {turn['user']}\nAsistan: {turn['assistant']}\n\n"
 
     prompt = f"""{SYSTEM_PROMPT}
 
+{f'ÖNCEKİ KONUŞMA:{chr(10)}{history_text}' if history_text else ''}
 BAĞLAM BELGELERİ:
 {context}
 
@@ -109,6 +143,7 @@ YANIT:"""
 
 if __name__ == "__main__":
     vectorstore, bm25, chunks = load_indexes()
+    get_reranker()
     llm = OllamaLLM(model="gemma3:4b", temperature=0.1)
 
     print("\nİÜC Akademik Asistan hazır! (Çıkmak için 'quit' yazın)\n")
