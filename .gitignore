@@ -6,5 +6,4 @@ env/
 __pycache__/
 *.pyc
 
-# (İsteğe Bağlı) PDF'leri GitHub'a atmak istemiyorsan aşağıdaki satırın başındaki diyezi kaldır:
 # data/
